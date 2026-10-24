@@ -1,39 +1,36 @@
-const sqlite3 = require('sqlite3').verbose();
+require("dotenv").config();
+const { Pool } = require("pg");
 
-const db = new sqlite3.Database(process.env.DB_NAME || 'inventario.db', (err) => {
-  if (err) {
-    console.error('Error al conectar con la base de datos:', err.message);
-  } else {
-    console.log('Conectado a la base de datos SQLite');
-  }
+// Pool = grupo de conexiones a la base de datos (Neon).
+// La dirección secreta viene del archivo .env, nunca va escrita en el código.
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
 });
 
-db.serialize(() => {
-  db.run('PRAGMA foreign_keys = ON');
-
-  db.run(`
+// Crea las tablas si todavía no existen
+async function iniciarBD() {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS insumos (
-      codigo TEXT PRIMARY KEY,
-      nombre TEXT NOT NULL,
-      categoria TEXT,
-      unidad TEXT,
-      stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
-      precio REAL DEFAULT 0,
+      codigo     TEXT PRIMARY KEY,
+      nombre     TEXT NOT NULL,
+      categoria  TEXT,
+      unidad     TEXT,
+      stock      INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
+      precio     NUMERIC(10,2) DEFAULT 0 CHECK (precio >= 0),
       comentario TEXT
     )
   `);
 
-  db.run(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS movimientos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      insumo_codigo TEXT NOT NULL,
-      tipo TEXT NOT NULL CHECK (tipo IN ('entrada', 'salida')),
-      cantidad INTEGER NOT NULL CHECK (cantidad > 0),
-      fecha TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      responsable TEXT NOT NULL,
-      FOREIGN KEY (insumo_codigo) REFERENCES insumos(codigo)
+      id            SERIAL PRIMARY KEY,
+      insumo_codigo TEXT NOT NULL REFERENCES insumos(codigo),
+      tipo          TEXT NOT NULL CHECK (tipo IN ('entrada', 'salida')),
+      cantidad      INTEGER NOT NULL CHECK (cantidad > 0),
+      fecha         TIMESTAMP NOT NULL DEFAULT NOW(),
+      responsable   TEXT NOT NULL
     )
   `);
-});
+}
 
-module.exports = db;
+module.exports = { pool, iniciarBD };
