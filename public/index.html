@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inventario de insumos de limpieza</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 16px; color: #222; }
+    h1 { margin-bottom: 4px; }
+    section { border: 1px solid #ccc; border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; font-size: 14px; }
+    th { background: #f2f2f2; }
+    form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+    label { display: flex; flex-direction: column; font-size: 14px; gap: 4px; }
+    input, select, textarea { padding: 6px; font-size: 14px; }
+    button { padding: 6px 12px; cursor: pointer; margin-right: 4px; }
+    .acciones { grid-column: 1 / -1; }
+    #mensaje { padding: 10px; border-radius: 6px; margin: 12px 0; display: none; }
+    #mensaje.ok { display: block; background: #e3f6e5; border: 1px solid #5cb85c; }
+    #mensaje.error { display: block; background: #fde8e8; border: 1px solid #d9534f; }
+    #mensaje ul { margin: 0; padding-left: 18px; }
+    .entrada { color: #1a7f37; font-weight: bold; }
+    .salida { color: #b42318; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Inventario de insumos de limpieza</h1>
+  <p>Control de entradas y salidas de materiales.</p>
+
+  <div id="mensaje" role="alert"></div>
+
+  <!-- LISTA DE INSUMOS -->
+  <section>
+    <h2>Insumos</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Código</th><th>Nombre</th><th>Categoría</th><th>Unidad</th>
+          <th>Stock</th><th>Precio</th><th>Comentario</th><th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tabla-insumos"></tbody>
+    </table>
+  </section>
+
+  <!-- FORMULARIO DE INSUMO (crear / editar) -->
+  <section>
+    <h2 id="titulo-insumo">Registrar insumo</h2>
+    <form id="form-insumo" novalidate>
+      <label>Código <input id="codigo" type="text" placeholder="Ej: CLO-001"></label>
+      <label>Nombre <input id="nombre" type="text" placeholder="Ej: Cloro"></label>
+      <label>Categoría <input id="categoria" type="text" placeholder="Ej: Aseo"></label>
+      <label>Unidad de medida <input id="unidad" type="text" placeholder="Ej: litro"></label>
+      <label>Stock <input id="stock" type="number" min="0" placeholder="0"></label>
+      <label>Precio <input id="precio" type="number" min="0" step="1" placeholder="0"></label>
+      <label>Comentario <textarea id="comentario" rows="2"></textarea></label>
+      <div class="acciones">
+        <button type="submit" id="btn-guardar">Guardar insumo</button>
+        <button type="button" id="btn-cancelar" style="display:none;">Cancelar edición</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- FORMULARIO DE MOVIMIENTO -->
+  <section>
+    <h2>Registrar entrada o salida</h2>
+    <form id="form-movimiento" novalidate>
+      <label>Insumo <select id="mov-insumo"></select></label>
+      <label>Tipo
+        <select id="mov-tipo">
+          <option value="entrada">Entrada (llegó material)</option>
+          <option value="salida">Salida (se usó material)</option>
+        </select>
+      </label>
+      <label>Cantidad <input id="mov-cantidad" type="number" min="1" placeholder="Ej: 5"></label>
+      <label>Responsable <input id="mov-responsable" type="text" placeholder="Quién lo registra"></label>
+      <div class="acciones"><button type="submit">Registrar movimiento</button></div>
+    </form>
+  </section>
+
+  <!-- HISTORIAL -->
+  <section>
+    <h2>Historial de movimientos</h2>
+    <label>Filtrar por insumo <select id="filtro-insumo"></select></label>
+    <table>
+      <thead>
+        <tr><th>Fecha</th><th>Insumo</th><th>Tipo</th><th>Cantidad</th><th>Responsable</th></tr>
+      </thead>
+      <tbody id="tabla-historial"></tbody>
+    </table>
+  </section>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const JSON_HEADERS = { "Content-Type": "application/json" };
+    let editando = null; // código del insumo que se está editando (o null)
+
+    // ----- Mensajes -----
+    function mostrarMensaje(textos, tipo) {
+      if (!Array.isArray(textos)) textos = ["No se pudo conectar con el servidor."];
+      const caja = $("mensaje");
+      caja.className = tipo;
+      caja.innerHTML = "";
+      const ul = document.createElement("ul");
+      textos.forEach((t) => {
+        const li = document.createElement("li");
+        li.textContent = t; // textContent evita inyectar código
+        ul.appendChild(li);
+      });
+      caja.appendChild(ul);
+    }
+
+    // ----- Llamar a la API -----
+    async function api(url, opciones) {
+      const resp = await fetch(url, opciones);
+      const datos = await resp.json();
+      if (!resp.ok) throw datos.errores || ["Ocurrió un error."];
+      return datos;
+    }
+
+    // ----- Utilidades para armar tablas -----
+    function celda(texto, clase) {
+      const td = document.createElement("td");
+      td.textContent = texto ?? "";
+      if (clase) td.className = clase;
+      return td;
+    }
+    function boton(texto, accion) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = texto;
+      b.addEventListener("click", accion);
+      return b;
+    }
+    function llenarSelect(select, insumos, conTodos) {
+      const actual = select.value;
+      select.innerHTML = "";
+      select.add(new Option(conTodos ? "Todos los insumos" : "Elige un insumo...", ""));
+      insumos.forEach((i) => select.add(new Option(`${i.nombre} (${i.codigo})`, i.codigo)));
+      select.value = actual;
+    }
+
+    // ----- Insumos -----
+    async function cargarInsumos() {
+      const insumos = await api("/api/insumos");
+      const tbody = $("tabla-insumos");
+      tbody.innerHTML = "";
+      if (insumos.length === 0) {
+        const tr = document.createElement("tr");
+        const td = celda("Aún no hay insumos registrados.");
+        td.colSpan = 8;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+      insumos.forEach((i) => {
+        const tr = document.createElement("tr");
+        tr.appendChild(celda(i.codigo));
+        tr.appendChild(celda(i.nombre));
+        tr.appendChild(celda(i.categoria));
+        tr.appendChild(celda(i.unidad));
+        tr.appendChild(celda(i.stock));
+        tr.appendChild(celda("$" + Number(i.precio).toLocaleString("es-CL")));
+        tr.appendChild(celda(i.comentario));
+        const td = document.createElement("td");
+        td.appendChild(boton("Editar", () => editarInsumo(i)));
+        td.appendChild(boton("Eliminar", () => eliminarInsumo(i)));
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      });
+      llenarSelect($("mov-insumo"), insumos, false);
+      llenarSelect($("filtro-insumo"), insumos, true);
+    }
+
+    function limpiarFormulario() {
+      $("form-insumo").reset();
+      $("codigo").disabled = false;
+      editando = null;
+      $("titulo-insumo").textContent = "Registrar insumo";
+      $("btn-guardar").textContent = "Guardar insumo";
+      $("btn-cancelar").style.display = "none";
+    }
+
+    function editarInsumo(i) {
+      editando = i.codigo;
+      $("codigo").value = i.codigo;
+      $("codigo").disabled = true; // el código no se cambia
+      $("nombre").value = i.nombre;
+      $("categoria").value = i.categoria ?? "";
+      $("unidad").value = i.unidad ?? "";
+      $("stock").value = i.stock;
+      $("precio").value = Number(i.precio);
+      $("comentario").value = i.comentario ?? "";
+      $("titulo-insumo").textContent = "Editar insumo " + i.codigo;
+      $("btn-guardar").textContent = "Guardar cambios";
+      $("btn-cancelar").style.display = "inline";
+      $("form-insumo").scrollIntoView({ behavior: "smooth" });
+    }
+
+    async function eliminarInsumo(i) {
+      if (!confirm(`¿Eliminar el insumo "${i.nombre}"?`)) return;
+      try {
+        await api("/api/insumos/" + encodeURIComponent(i.codigo), { method: "DELETE" });
+        mostrarMensaje(["Insumo eliminado."], "ok");
+        await cargarTodo();
+      } catch (errores) {
+        mostrarMensaje(errores, "error");
+      }
+    }
+
+    $("btn-cancelar").addEventListener("click", limpiarFormulario);
+
+    $("form-insumo").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const datos = {
+        codigo: $("codigo").value,
+        nombre: $("nombre").value,
+        categoria: $("categoria").value,
+        unidad: $("unidad").value,
+        stock: $("stock").value,
+        precio: $("precio").value,
+        comentario: $("comentario").value,
+      };
+      try {
+        if (editando) {
+          await api("/api/insumos/" + encodeURIComponent(editando), {
+            method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(datos),
+          });
+          mostrarMensaje(["Insumo actualizado."], "ok");
+        } else {
+          await api("/api/insumos", {
+            method: "POST", headers: JSON_HEADERS, body: JSON.stringify(datos),
+          });
+          mostrarMensaje(["Insumo registrado."], "ok");
+        }
+        limpiarFormulario();
+        await cargarTodo();
+      } catch (errores) {
+        mostrarMensaje(errores, "error");
+      }
+    });
+
+    // ----- Movimientos -----
+    async function cargarHistorial() {
+      const codigo = $("filtro-insumo").value;
+      const url = codigo ? "/api/movimientos?insumo=" + encodeURIComponent(codigo) : "/api/movimientos";
+      const movimientos = await api(url);
+      const tbody = $("tabla-historial");
+      tbody.innerHTML = "";
+      if (movimientos.length === 0) {
+        const tr = document.createElement("tr");
+        const td = celda("No hay movimientos registrados.");
+        td.colSpan = 5;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+      movimientos.forEach((m) => {
+        const tr = document.createElement("tr");
+        tr.appendChild(celda(new Date(m.fecha).toLocaleString("es-CL")));
+        tr.appendChild(celda(`${m.insumo_nombre} (${m.insumo_codigo})`));
+        tr.appendChild(celda(m.tipo, m.tipo));
+        tr.appendChild(celda(m.cantidad));
+        tr.appendChild(celda(m.responsable));
+        tbody.appendChild(tr);
+      });
+    }
+
+    $("filtro-insumo").addEventListener("change", () => {
+      cargarHistorial().catch((errores) => mostrarMensaje(errores, "error"));
+    });
+
+    $("form-movimiento").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const datos = {
+        insumo_codigo: $("mov-insumo").value,
+        tipo: $("mov-tipo").value,
+        cantidad: $("mov-cantidad").value,
+        responsable: $("mov-responsable").value,
+      };
+      try {
+        const r = await api("/api/movimientos", {
+          method: "POST", headers: JSON_HEADERS, body: JSON.stringify(datos),
+        });
+        mostrarMensaje([`Movimiento registrado. Stock actual: ${r.stock_actual}.`], "ok");
+        $("mov-cantidad").value = "";
+        await cargarTodo();
+      } catch (errores) {
+        mostrarMensaje(errores, "error");
+      }
+    });
+
+    // ----- Inicio -----
+    async function cargarTodo() {
+      await cargarInsumos();
+      await cargarHistorial();
+    }
+    cargarTodo().catch((errores) => mostrarMensaje(errores, "error"));
+  </script>
+</body>
+</html>
