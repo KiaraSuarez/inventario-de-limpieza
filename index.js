@@ -128,6 +128,90 @@ app.delete("/api/insumos/:codigo", async (req, res) => {
   }
 });
 
+// ---------- MOVIMIENTOS: registrar entrada o salida ----------
+app.post("/api/movimientos", async (req, res) => {
+  const { insumo_codigo, tipo, cantidad, responsable } = req.body;
+
+  // 1) Validar los datos
+  const errores = [];
+  if (!insumo_codigo) errores.push("Debes elegir un insumo.");
+  if (tipo !== "entrada" && tipo !== "salida") {
+    errores.push("El tipo debe ser 'entrada' o 'salida'.");
+  }
+  const cant = Number(cantidad);
+  if (!Number.isInteger(cant) || cant <= 0) {
+    errores.push("La cantidad debe ser un número entero mayor que 0.");
+  }
+  if (!responsable || !String(responsable).trim()) {
+    errores.push("El responsable es obligatorio.");
+  }
+  if (errores.length) return res.status(400).json({ errores });
+
+  // 2) Hacerlo todo dentro de una transacción
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Buscar el insumo y bloquearlo mientras trabajamos con él
+    const insumo = await client.query(
+      "SELECT stock FROM insumos WHERE codigo = $1 FOR UPDATE",
+      [insumo_codigo]
+    );
+    if (insumo.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ errores: ["El insumo no existe."] });
+    }
+
+    const stockActual = insumo.rows[0].stock;
+
+    // Regla: no se puede sacar más de lo que hay
+    if (tipo === "salida" && cant > stockActual) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        errores: [`Stock insuficiente: hay ${stockActual} y quieres sacar ${cant}.`],
+      });
+    }
+
+    const nuevoStock = tipo === "entrada" ? stockActual + cant : stockActual - cant;
+
+    await client.query("UPDATE insumos SET stock = $1 WHERE codigo = $2", [nuevoStock, insumo_codigo]);
+
+    const mov = await client.query(
+      `INSERT INTO movimientos (insumo_codigo, tipo, cantidad, responsable)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [insumo_codigo, tipo, cant, String(responsable).trim()]
+    );
+
+    await client.query("COMMIT");
+    res.status(201).json({ movimiento: mov.rows[0], stock_actual: nuevoStock });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error(error);
+    res.status(500).json({ errores: ["Error interno del servidor."] });
+  } finally {
+    client.release(); // devolver la conexión al grupo
+  }
+});
+
+// ---------- MOVIMIENTOS: historial (todos, o de un insumo con ?insumo=CODIGO) ----------
+app.get("/api/movimientos", async (req, res) => {
+  try {
+    const { insumo } = req.query;
+    const consulta = `
+      SELECT m.id, m.insumo_codigo, i.nombre AS insumo_nombre,
+             m.tipo, m.cantidad, m.fecha, m.responsable
+      FROM movimientos m
+      JOIN insumos i ON i.codigo = m.insumo_codigo
+      ${insumo ? "WHERE m.insumo_codigo = $1" : ""}
+      ORDER BY m.fecha DESC, m.id DESC`;
+    const r = await pool.query(consulta, insumo ? [insumo] : []);
+    res.json(r.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ errores: ["Error interno del servidor."] });
+  }
+});
+
 // Primero creamos las tablas, y recién después encendemos el servidor
 iniciarBD()
   .then(() => {
