@@ -55,7 +55,3 @@ Aplicación web para registrar las entradas y salidas de materiales de limpieza 
 ## Variables de entorno
 
 Ver `.env.example`. Los datos secretos **no** se suben al repositorio: se guardan en el archivo `.env` (ignorado por Git) y en la configuración de Render.
-
-## Autora
-
-Proyecto final del diplomado Back-End Developer.
