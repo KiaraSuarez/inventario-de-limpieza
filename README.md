@@ -1,45 +1,61 @@
-# Inventario de Limpieza
+# Control de inventario de materiales de limpieza
 
-Sistema de control de entradas y salidas de materiales e insumos de limpieza. Reemplaza el registro manual en papel: permite registrar insumos, ver el stock actual y llevar el historial de movimientos (quién retiró qué y cuándo).
+Aplicación web para registrar las entradas y salidas de materiales de limpieza de una empresa de servicios de aseo, y saber en todo momento cuánto stock hay de cada insumo.
 
-Proyecto del diplomado Back-End Developer.
+**App publicada:** https://inventario-de-limpieza.onrender.com/
+
+(El servicio gratuito se "duerme" si no se usa: la primera carga puede tardar cerca de 1 minuto.)
+
+## Qué permite hacer
+
+- Registrar, ver, editar y eliminar insumos (CRUD).
+- Registrar entradas (llega material) y salidas (se usa material).
+- Ver el historial de movimientos, de todos los insumos o de uno solo.
+
+## Reglas del sistema
+
+- No pueden existir dos insumos con el mismo código.
+- No se puede registrar una salida mayor al stock disponible.
+- No se puede eliminar un insumo que ya tiene movimientos registrados.
+- Los datos se validan antes de guardarse y se muestran mensajes de error claros.
 
 ## Tecnologías
 
-- Node.js
-- Express
-- SQLite
+- Node.js y Express (servidor y API)
+- PostgreSQL en Neon (base de datos)
+- HTML y JavaScript simple (página de uso)
+- Render (publicación)
 
-## Estado del proyecto
+## Estructura
 
-En desarrollo. Por ahora funciona el servidor base con Express. El avance se puede ver en el tablero de Trello y en el historial de commits.
+- `index.js`: servidor y rutas de la API
+- `database.js`: conexión a PostgreSQL y creación de tablas
+- `public/index.html`: página para usar el sistema
 
-## Cómo levantarlo paso a paso
+## Rutas de la API
 
-1. Instalar Node.js (versión LTS) desde https://nodejs.org
-2. Clonar el repositorio:
+| Método | Ruta | Qué hace |
+|--------|------|----------|
+| GET | /api/insumos | Lista de insumos |
+| GET | /api/insumos/:codigo | Un insumo |
+| POST | /api/insumos | Registrar insumo |
+| PUT | /api/insumos/:codigo | Editar insumo |
+| DELETE | /api/insumos/:codigo | Eliminar insumo |
+| POST | /api/movimientos | Registrar entrada o salida |
+| GET | /api/movimientos | Historial (opcional `?insumo=CODIGO`) |
 
-   git clone https://github.com/KiaraSuarez/inventario-de-limpieza.git
+## Cómo ejecutarlo en tu computador
 
-3. Entrar a la carpeta del proyecto:
+1. Instalar Node.js y clonar este repositorio.
+2. Instalar dependencias: `npm install`
+3. Crear un archivo `.env` (mira `.env.example`) con la dirección de tu base PostgreSQL en la variable `DATABASE_URL`.
+4. Iniciar: `npm start`
+5. Abrir http://localhost:3000
 
-   cd inventario-de-limpieza
+## Variables de entorno
 
-4. Instalar las dependencias:
+Ver `.env.example`. Los datos secretos **no** se suben al repositorio: se guardan en el archivo `.env` (ignorado por Git) y en la configuración de Render.
 
-   npm install
+## Autora
 
-5. Crear el archivo de configuración: copiar .env.example y nombrar la copia .env, luego completar los valores.
-6. Iniciar el servidor:
-
-   node index.js
-
-7. Abrir en el navegador http://localhost:3000
-
-## Configuraciones necesarias
-
-El proyecto usa un archivo .env (no se sube al repositorio por seguridad). En .env.example están los nombres de las variables, sin valores reales.
-
-## Seguridad
-
-Las contraseñas y claves nunca se suben al repositorio. El archivo .env y la base de datos están en .gitignore.
+Proyecto final del diplomado Back-End Developer.
